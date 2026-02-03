@@ -5,3 +5,4 @@ pillow
 moviepy
 imageio 
 imageio-ffmpeg
+matplotlib
