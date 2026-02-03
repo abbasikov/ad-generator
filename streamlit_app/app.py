@@ -1,8 +1,15 @@
 import streamlit as st
-import json, os, re, numpy as np, imageio
+import json, os, re, numpy as np, imageio, subprocess, tempfile
 from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI
 from dotenv import load_dotenv
+
+
+import shutil
+import streamlit as st
+
+if not shutil.which("ffmpeg"):
+    st.error("❌ FFmpeg not found. Music overlay will not work. Contact admin to install ffmpeg.")
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -23,9 +30,13 @@ uploaded_files = st.sidebar.file_uploader(
     "📸 Upload product images (1-10)", type=["png","jpg","jpeg"], accept_multiple_files=True
 )
 
+music_file = st.sidebar.file_uploader(
+    "🎵 Optional: Upload background music (mp3)", type=["mp3"], accept_multiple_files=False
+)
+
 ad_description = st.sidebar.text_area(
     "✏️ Describe your ad",
-    placeholder="e.g., 5s vertical video, fast-paced, hero shot of bag, reveal mini bag, final CTA..."
+    placeholder="e.g., 5s vertical video, clean & modern, hero shot of bag, reveal mini bag, final CTA..."
 )
 
 aspect_choice = st.sidebar.radio("📐 Aspect Ratio", ["Instagram 9:16", "YouTube 16:9"])
@@ -41,9 +52,10 @@ st.sidebar.markdown(
     "💡 **Tip:** Upload multiple angles of your product and describe motions, durations, and text overlays for best results."
 )
 
+
 st.title("🎥 AI Video Ad Generator")
 st.markdown(
-    "<p style='font-size:18px; color:#333;'>Generate professional Instagram/Youtube-ready video ads automatically from your product images and description.</p>",
+    "<p style='font-size:18px; color:#333;'>Generate professional Instagram/TikTok-ready video ads automatically from your product images, optional music, and description.</p>",
     unsafe_allow_html=True
 )
 
@@ -117,7 +129,7 @@ Create a scene plan for a vertical video ad based on this description:
 Rules:
 - Return JSON with key "scenes": [{{"image_index": 0, "duration": 1.5, "motion":"zoom_in", "text":"Scene text"}}]
 - Use motions: zoom_in, zoom_out, pan_left, none
-- Provide duration per scene in seconds (respect the times user describes)
+- Provide duration per scene in seconds
 - Respect order of scenes
 - Maximum 10 scenes
 - Return ONLY valid JSON, no explanations
@@ -151,6 +163,18 @@ def render_video(images, scene_plan, output="final_ad.mp4"):
             writer.append_data(np.array(frame_img))
     writer.close()
 
+def add_music_ffmpeg(video_path, music_path, output_path="final_ad_with_music.mp4"):
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", music_path,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-shortest",
+        output_path
+    ])
+    return output_path
+
 if generate_btn:
     if not uploaded_files:
         st.sidebar.error("Please upload at least one image.")
@@ -161,12 +185,20 @@ if generate_btn:
         with st.spinner("AI generating scene plan..."):
             scene_plan = generate_scene_json(ad_description)
         if scene_plan.get("scenes"):
-            st.info("🎶 Tip: You can add background music next for beat-sync to make it feel like a professional ad.")
             with st.spinner("Rendering video..."):
-                render_video(images, scene_plan)
+                temp_video = "final_ad.mp4"
+                render_video(images, scene_plan, output=temp_video)
+
+                final_video_path = temp_video
+                if music_file:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+                        tmp.write(music_file.read())
+                        music_path = tmp.name
+                    final_video_path = add_music_ffmpeg(temp_video, music_path)
+
             st.success("✅ Video Generated!")
-            st.video("final_ad.mp4")
-            with open("final_ad.mp4","rb") as f:
+            st.video(final_video_path)
+            with open(final_video_path,"rb") as f:
                 st.download_button("⬇️ Download Video", f, file_name="ai_video_ad.mp4", mime="video/mp4")
         else:
             st.error("No scenes generated. Try a simpler description.")

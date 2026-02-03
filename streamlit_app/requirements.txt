@@ -6,3 +6,4 @@ moviepy
 imageio 
 imageio-ffmpeg
 matplotlib
+pydub
