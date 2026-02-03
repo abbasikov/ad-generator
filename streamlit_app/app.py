@@ -4,6 +4,7 @@ from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI
 from dotenv import load_dotenv
 
+
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -11,8 +12,8 @@ FPS = 30
 WIDTH, HEIGHT = 1080, 1920 
 FONT_PATH = "/System/Library/Fonts/Supplemental/Arial.ttf"
 
-st.title("🎥 AI Video Ad Generator (Version 2)")
-st.write("Upload product images and describe your ad. The AI will generate a video ad with camera motion and animated text.")
+st.title("🎥 AI Video Ad Generator")
+st.write("Upload product images and describe your ad. The AI will generate a video ad respecting durations and aspect ratios.")
 
 uploaded_files = st.file_uploader(
     "Upload product images (1-10)", type=["png","jpg","jpeg"], accept_multiple_files=True
@@ -53,6 +54,22 @@ def apply_camera_motion(img, frame, total_frames, motion):
 
     return img.crop((x, y, x + WIDTH, y + HEIGHT))
 
+def fit_image(img):
+    img_ratio = img.width / img.height
+    frame_ratio = WIDTH / HEIGHT
+
+    if img_ratio > frame_ratio:
+        new_w = WIDTH
+        new_h = int(WIDTH / img_ratio)
+    else:
+        new_h = HEIGHT
+        new_w = int(HEIGHT * img_ratio)
+
+    img_resized = img.resize((new_w, new_h), Image.LANCZOS)
+    frame = Image.new("RGB", (WIDTH, HEIGHT), (0,0,0))
+    frame.paste(img_resized, ((WIDTH-new_w)//2, (HEIGHT-new_h)//2))
+    return frame
+
 def draw_animated_text(img, text, frame, total_frames):
     draw = ImageDraw.Draw(img, "RGBA")
     try:
@@ -66,6 +83,7 @@ def draw_animated_text(img, text, frame, total_frames):
     bbox = draw.textbbox((0,0), text, font=font)
     text_w = bbox[2] - bbox[0]
     draw.text((x - text_w//2, y), text, fill=(255,255,255,alpha), font=font)
+
 
 def parse_ai_json(raw_text):
     try:
@@ -85,12 +103,11 @@ Create a scene plan for a vertical video ad based on this description:
 Rules:
 - Return JSON with key "scenes": [{{"image_index": 0, "duration": 1.5, "motion":"zoom_in", "text":"Scene text"}}]
 - Use motions: zoom_in, zoom_out, pan_left, none
-- Provide duration per scene in seconds
+- Provide duration per scene in seconds (respect the times user describes)
 - Respect order of scenes
 - Maximum 10 scenes
 - Return ONLY valid JSON, no explanations
 """
-
     res = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -105,12 +122,13 @@ def render_video(images, scene_plan, output="final_ad.mp4"):
     if len(images) == 0 or len(scene_plan.get("scenes", [])) == 0:
         st.error("No images or scenes to render.")
         return
+
     writer = imageio.get_writer(output, fps=FPS, codec="libx264")
     for scene in scene_plan["scenes"]:
         idx = min(scene.get("image_index",0), len(images)-1)
         img = images[idx].copy()
-        img = img.resize((WIDTH, HEIGHT), Image.LANCZOS)
-        frames = int(scene.get("duration",1.5) * FPS)
+        img = fit_image(img)
+        frames = max(1, int(scene.get("duration",1.5) * FPS))
         motion = scene.get("motion","none")
         text = scene.get("text","")
         for f in range(frames):
@@ -118,6 +136,7 @@ def render_video(images, scene_plan, output="final_ad.mp4"):
             draw_animated_text(frame_img, text, f, frames)
             writer.append_data(np.array(frame_img))
     writer.close()
+
 
 if generate_btn:
     if not uploaded_files:
