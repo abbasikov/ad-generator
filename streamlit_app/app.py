@@ -3,13 +3,7 @@ import json, os, re, numpy as np, imageio, subprocess, tempfile
 from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI
 from dotenv import load_dotenv
-
-
 import shutil
-import streamlit as st
-
-if not shutil.which("ffmpeg"):
-    st.error("❌ FFmpeg not found. Music overlay will not work. Contact admin to install ffmpeg.")
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -19,43 +13,39 @@ WIDTH, HEIGHT = 1080, 1920
 FONT_PATH = "/System/Library/Fonts/Supplemental/Arial.ttf"
 
 st.set_page_config(
-    page_title="AI Video Ad Generator",
+    page_title="Video Ad Generator",
     page_icon="🎥",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+
 st.sidebar.header("🎯 Ad Settings")
 uploaded_files = st.sidebar.file_uploader(
-    "📸 Upload product images (1-10)", type=["png","jpg","jpeg"], accept_multiple_files=True
+    "📸 **Upload product images (1-10)**", type=["png","jpg","jpeg"], accept_multiple_files=True
 )
-
 music_file = st.sidebar.file_uploader(
-    "🎵 Optional: Upload background music (mp3)", type=["mp3"], accept_multiple_files=False
+    "🎵 **Optional: Upload background music (mp3)**", type=["mp3"], accept_multiple_files=False
 )
-
 ad_description = st.sidebar.text_area(
-    "✏️ Describe your ad",
+    "✏️ **Describe your ad**",
     placeholder="e.g., 5s vertical video, clean & modern, hero shot of bag, reveal mini bag, final CTA..."
 )
-
-aspect_choice = st.sidebar.radio("📐 Aspect Ratio", ["Instagram 9:16", "YouTube 16:9"])
+aspect_choice = st.sidebar.radio("📐 **Aspect Ratio**", ["Instagram 9:16", "YouTube 16:9"])
 if aspect_choice == "Instagram 9:16":
     WIDTH, HEIGHT = 1080, 1920
 else:
     WIDTH, HEIGHT = 1920, 1080
 
 generate_btn = st.sidebar.button("🚀 Generate Video Ad", type="primary")
-
 st.sidebar.markdown("---")
 st.sidebar.markdown(
     "💡 **Tip:** Upload multiple angles of your product and describe motions, durations, and text overlays for best results."
 )
 
-
-st.title("🎥 AI Video Ad Generator")
+st.title("🎥 Video Ad Generator")
 st.markdown(
-    "<p style='font-size:18px; color:#333;'>Generate professional Instagram/TikTok-ready video ads automatically from your product images, optional music, and description.</p>",
+    "<p style='font-size:18px; color:#333;'>Generate professional Instagram/Youtube-ready video ads automatically from your product images, optional music, and description.</p>",
     unsafe_allow_html=True
 )
 
@@ -75,7 +65,6 @@ def apply_camera_motion(img, frame, total_frames, motion):
 
     x = max(0, (new_w - WIDTH)//2)
     y = max(0, (new_h - HEIGHT)//2)
-
     if motion == "pan_left":
         x = int((new_w - WIDTH) * (frame / total_frames))
 
@@ -84,14 +73,12 @@ def apply_camera_motion(img, frame, total_frames, motion):
 def fit_image(img):
     img_ratio = img.width / img.height
     frame_ratio = WIDTH / HEIGHT
-
     if img_ratio > frame_ratio:
         new_w = WIDTH
         new_h = int(WIDTH / img_ratio)
     else:
         new_h = HEIGHT
         new_w = int(HEIGHT * img_ratio)
-
     img_resized = img.resize((new_w, new_h), Image.LANCZOS)
     frame = Image.new("RGB", (WIDTH, HEIGHT), (0,0,0))
     frame.paste(img_resized, ((WIDTH-new_w)//2, (HEIGHT-new_h)//2))
@@ -148,7 +135,6 @@ def render_video(images, scene_plan, output="final_ad.mp4"):
     if len(images) == 0 or len(scene_plan.get("scenes", [])) == 0:
         st.error("No images or scenes to render.")
         return
-
     writer = imageio.get_writer(output, fps=FPS, codec="libx264")
     for scene in scene_plan["scenes"]:
         idx = min(scene.get("image_index",0), len(images)-1)
@@ -164,6 +150,9 @@ def render_video(images, scene_plan, output="final_ad.mp4"):
     writer.close()
 
 def add_music_ffmpeg(video_path, music_path, output_path="final_ad_with_music.mp4"):
+    if not shutil.which("ffmpeg"):
+        st.warning("⚠️ FFmpeg not found. Video generated without music.")
+        return video_path 
     subprocess.run([
         "ffmpeg", "-y",
         "-i", video_path,
@@ -184,6 +173,7 @@ if generate_btn:
         images = [Image.open(f).convert("RGB") for f in uploaded_files]
         with st.spinner("AI generating scene plan..."):
             scene_plan = generate_scene_json(ad_description)
+
         if scene_plan.get("scenes"):
             with st.spinner("Rendering video..."):
                 temp_video = "final_ad.mp4"
