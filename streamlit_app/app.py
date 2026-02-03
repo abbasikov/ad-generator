@@ -4,7 +4,6 @@ from PIL import Image, ImageDraw, ImageFont
 from openai import OpenAI
 from dotenv import load_dotenv
 
-
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -12,25 +11,41 @@ FPS = 30
 WIDTH, HEIGHT = 1080, 1920 
 FONT_PATH = "/System/Library/Fonts/Supplemental/Arial.ttf"
 
-st.title("🎥 AI Video Ad Generator")
-st.write("Upload product images and describe your ad. The AI will generate a video ad respecting durations and aspect ratios.")
-
-uploaded_files = st.file_uploader(
-    "Upload product images (1-10)", type=["png","jpg","jpeg"], accept_multiple_files=True
+st.set_page_config(
+    page_title="AI Video Ad Generator",
+    page_icon="🎥",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-ad_description = st.text_area(
-    "Describe your ad",
-    placeholder="Describe the video ad, style, scenes, product, duration..."
+st.sidebar.header("🎯 Ad Settings")
+uploaded_files = st.sidebar.file_uploader(
+    "📸 Upload product images (1-10)", type=["png","jpg","jpeg"], accept_multiple_files=True
 )
 
-aspect_choice = st.selectbox("Aspect Ratio", ["Instagram 9:16", "YouTube 16:9"])
+ad_description = st.sidebar.text_area(
+    "✏️ Describe your ad",
+    placeholder="e.g., 5s vertical video, fast-paced, hero shot of bag, reveal mini bag, final CTA..."
+)
+
+aspect_choice = st.sidebar.radio("📐 Aspect Ratio", ["Instagram 9:16", "YouTube 16:9"])
 if aspect_choice == "Instagram 9:16":
     WIDTH, HEIGHT = 1080, 1920
 else:
     WIDTH, HEIGHT = 1920, 1080
 
-generate_btn = st.button("🚀 Generate Video Ad")
+generate_btn = st.sidebar.button("🚀 Generate Video Ad", type="primary")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "💡 **Tip:** Upload multiple angles of your product and describe motions, durations, and text overlays for best results."
+)
+
+st.title("🎥 AI Video Ad Generator")
+st.markdown(
+    "<p style='font-size:18px; color:#333;'>Generate professional Instagram/Youtube-ready video ads automatically from your product images and description.</p>",
+    unsafe_allow_html=True
+)
 
 def apply_camera_motion(img, frame, total_frames, motion):
     w, h = img.size
@@ -84,7 +99,6 @@ def draw_animated_text(img, text, frame, total_frames):
     text_w = bbox[2] - bbox[0]
     draw.text((x - text_w//2, y), text, fill=(255,255,255,alpha), font=font)
 
-
 def parse_ai_json(raw_text):
     try:
         match = re.search(r"\{.*\}", raw_text, flags=re.DOTALL)
@@ -137,17 +151,17 @@ def render_video(images, scene_plan, output="final_ad.mp4"):
             writer.append_data(np.array(frame_img))
     writer.close()
 
-
 if generate_btn:
     if not uploaded_files:
-        st.error("Please upload at least one image.")
+        st.sidebar.error("Please upload at least one image.")
     elif not ad_description.strip():
-        st.error("Please write an ad description.")
+        st.sidebar.error("Please write an ad description.")
     else:
         images = [Image.open(f).convert("RGB") for f in uploaded_files]
         with st.spinner("AI generating scene plan..."):
             scene_plan = generate_scene_json(ad_description)
         if scene_plan.get("scenes"):
+            st.info("🎶 Tip: You can add background music next for beat-sync to make it feel like a professional ad.")
             with st.spinner("Rendering video..."):
                 render_video(images, scene_plan)
             st.success("✅ Video Generated!")
