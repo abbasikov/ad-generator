@@ -1,7 +1,139 @@
 import streamlit as st
+import json, os, re, numpy as np, imageio
+from PIL import Image, ImageDraw, ImageFont
+from openai import OpenAI
+from dotenv import load_dotenv
 
-st.set_page_config(page_title="AI Video Ad Generator", layout="centered")
-st.title("🎥 AI Video Ad Generator")
-st.write("Upload product images and generate a short AI-powered video ad.")
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-st.write("Step 1: Streamlit is working ✅")
+FPS = 30
+WIDTH, HEIGHT = 1080, 1920 
+FONT_PATH = "/System/Library/Fonts/Supplemental/Arial.ttf"
+
+st.title("🎥 AI Video Ad Generator (Version 2)")
+st.write("Upload product images and describe your ad. The AI will generate a video ad with camera motion and animated text.")
+
+uploaded_files = st.file_uploader(
+    "Upload product images (1-10)", type=["png","jpg","jpeg"], accept_multiple_files=True
+)
+
+ad_description = st.text_area(
+    "Describe your ad",
+    placeholder="Describe the video ad, style, scenes, product, duration..."
+)
+
+aspect_choice = st.selectbox("Aspect Ratio", ["Instagram 9:16", "YouTube 16:9"])
+if aspect_choice == "Instagram 9:16":
+    WIDTH, HEIGHT = 1080, 1920
+else:
+    WIDTH, HEIGHT = 1920, 1080
+
+generate_btn = st.button("🚀 Generate Video Ad")
+
+def apply_camera_motion(img, frame, total_frames, motion):
+    w, h = img.size
+    if motion == "zoom_in":
+        scale = 1 + 0.15 * (frame / total_frames)
+    elif motion == "zoom_out":
+        scale = 1.15 - 0.15 * (frame / total_frames)
+    elif motion == "pan_left":
+        scale = 1.1
+    else:
+        scale = 1.0
+
+    new_w, new_h = int(w * scale), int(h * scale)
+    img = img.resize((new_w, new_h), Image.LANCZOS)
+
+    x = max(0, (new_w - WIDTH)//2)
+    y = max(0, (new_h - HEIGHT)//2)
+
+    if motion == "pan_left":
+        x = int((new_w - WIDTH) * (frame / total_frames))
+
+    return img.crop((x, y, x + WIDTH, y + HEIGHT))
+
+def draw_animated_text(img, text, frame, total_frames):
+    draw = ImageDraw.Draw(img, "RGBA")
+    try:
+        font = ImageFont.truetype(FONT_PATH, 70)
+    except:
+        font = ImageFont.load_default()
+    progress = frame / total_frames
+    alpha = int(255 * min(progress*2, 1))
+    x = WIDTH // 2
+    y = int(HEIGHT * 0.75 - 50*(1 - progress))
+    bbox = draw.textbbox((0,0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    draw.text((x - text_w//2, y), text, fill=(255,255,255,alpha), font=font)
+
+def parse_ai_json(raw_text):
+    try:
+        match = re.search(r"\{.*\}", raw_text, flags=re.DOTALL)
+        if match:
+            return json.loads(match.group())
+        return {}
+    except Exception as e:
+        print("JSON parse error:", e)
+        return {}
+
+def generate_scene_json(description):
+    user_prompt = f"""
+Create a scene plan for a vertical video ad based on this description:
+{description}
+
+Rules:
+- Return JSON with key "scenes": [{{"image_index": 0, "duration": 1.5, "motion":"zoom_in", "text":"Scene text"}}]
+- Use motions: zoom_in, zoom_out, pan_left, none
+- Provide duration per scene in seconds
+- Respect order of scenes
+- Maximum 10 scenes
+- Return ONLY valid JSON, no explanations
+"""
+
+    res = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role":"system","content":"You are a professional ad director. Return ONLY valid JSON."},
+            {"role":"user","content":user_prompt}
+        ],
+        temperature=0.4
+    )
+    return parse_ai_json(res.choices[0].message.content)
+
+def render_video(images, scene_plan, output="final_ad.mp4"):
+    if len(images) == 0 or len(scene_plan.get("scenes", [])) == 0:
+        st.error("No images or scenes to render.")
+        return
+    writer = imageio.get_writer(output, fps=FPS, codec="libx264")
+    for scene in scene_plan["scenes"]:
+        idx = min(scene.get("image_index",0), len(images)-1)
+        img = images[idx].copy()
+        img = img.resize((WIDTH, HEIGHT), Image.LANCZOS)
+        frames = int(scene.get("duration",1.5) * FPS)
+        motion = scene.get("motion","none")
+        text = scene.get("text","")
+        for f in range(frames):
+            frame_img = apply_camera_motion(img, f, frames, motion)
+            draw_animated_text(frame_img, text, f, frames)
+            writer.append_data(np.array(frame_img))
+    writer.close()
+
+if generate_btn:
+    if not uploaded_files:
+        st.error("Please upload at least one image.")
+    elif not ad_description.strip():
+        st.error("Please write an ad description.")
+    else:
+        images = [Image.open(f).convert("RGB") for f in uploaded_files]
+        with st.spinner("AI generating scene plan..."):
+            scene_plan = generate_scene_json(ad_description)
+        if scene_plan.get("scenes"):
+            with st.spinner("Rendering video..."):
+                render_video(images, scene_plan)
+            st.success("✅ Video Generated!")
+            st.video("final_ad.mp4")
+            with open("final_ad.mp4","rb") as f:
+                st.download_button("⬇️ Download Video", f, file_name="ai_video_ad.mp4", mime="video/mp4")
+        else:
+            st.error("No scenes generated. Try a simpler description.")
