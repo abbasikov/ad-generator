@@ -22,7 +22,7 @@ st.set_page_config(
 
 st.sidebar.header("🎯 Ad Settings")
 uploaded_files = st.sidebar.file_uploader(
-    "📸 **Upload product images (1-10)**", type=["png","jpg","jpeg"], accept_multiple_files=True
+    "📸 **Upload product images**", type=["png","jpg","jpeg"], accept_multiple_files=True
 )
 music_file = st.sidebar.file_uploader(
     "🎵 **Optional: Upload background music (mp3)**", type=["mp3"], accept_multiple_files=False
@@ -187,6 +187,7 @@ if generate_btn:
                     final_video_path = add_music_ffmpeg(temp_video, music_path)
 
             st.success("✅ Video Generated!")
+
             st.video(final_video_path)
             with open(final_video_path,"rb") as f:
                 st.download_button("⬇️ Download Video", f, file_name="ai_video_ad.mp4", mime="video/mp4")
