@@ -5,3 +5,5 @@ pillow
 moviepy
 imageio 
 imageio-ffmpeg
+matplotlib
+pydub
